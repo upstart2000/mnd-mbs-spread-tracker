@@ -33,8 +33,13 @@ def build_daily_record(prices_by_coupon, mbs_date, allow_yahoo_fallback=True):
     prices_by_coupon: {coupon(float): close(float)} for this trading day.
     mbs_date: the trading date (a datetime.date).
 
-    Returns a dict matching db.upsert_day()'s expected keys.
+    Returns a dict matching db.upsert_day()'s expected keys, or None for
+    weekend dates: MBS doesn't trade on weekends, and MND's feed occasionally
+    carries Sunday rows with partial/stale marks that aren't trading days.
     """
+    if mbs_date.weekday() >= 5:
+        return None
+
     record = {
         "mbs_date": mbs_date,
         "price_55": prices_by_coupon.get(5.5),

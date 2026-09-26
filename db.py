@@ -101,6 +101,101 @@ def compute_spreads(par_coupon, ust_5yr, ust_10yr):
     return spread_5yr, spread_10yr, spread_avg
 
 
+PAR_ANOMALY_THRESHOLD = 1.0  # coupon points; see par_anomaly_runs
+PAR_ANOMALY_MAX_RUN = 3     # trading days; longer humps are left alone
+
+
+def par_anomaly_runs(db_path=DEFAULT_DB_PATH,
+                     max_len=PAR_ANOMALY_MAX_RUN,
+                     threshold=PAR_ANOMALY_THRESHOLD,
+                     extra_row=None):
+    """
+    Find runs of 1..max_len consecutive trading days whose par coupon deviates
+    by more than `threshold` coupon points from the nearest non-null par on
+    BOTH sides, in the same direction - a hump or dip that fully reverts.
+
+    The par coupon tracks the rate level, which never jumps >1 point overnight
+    and fully reverses within days; such runs are bad coupon marks in MND's
+    feed (a single coupon's mark going stale/diverging while the others don't
+    move, persisting 1-3 days), not market moves. Genuine selloffs move
+    directionally over many days and don't revert, so they're never flagged.
+
+    `extra_row` is an optional (mbs_date_str, par_coupon) tuple treated as the
+    latest row for context (e.g. today's not-yet-written par) so runs ending
+    yesterday can be validated; it is never modified.
+
+    Returns [(severity, [mbs_date_str, ...]), ...], most severe first, with
+    overlapping candidates deduplicated (most severe wins). Safe to null every
+    returned run.
+    """
+    rows = None
+    with _connect(db_path) as conn:
+        rows = [(r[0], r[1]) for r in conn.execute(
+            "SELECT mbs_date, par_coupon FROM daily_spreads "
+            "WHERE par_coupon IS NOT NULL ORDER BY mbs_date")]
+    if extra_row is not None and extra_row[1] is not None:
+        rows.append((extra_row[0], extra_row[1]))
+    # rows are consecutive trading days by construction (weekends/holidays
+    # simply have no row), so any slice rows[i:i+L] is a run of L trading days.
+    n = len(rows)
+    cands = []
+    for L in range(1, max_len + 1):
+        for i in range(1, n - L):
+            B = rows[i - 1][1]
+            R = rows[i + L][1]
+            run = rows[i:i + L]
+            ok = True
+            sev = float("inf")
+            for _, p in run:
+                dB, dR = p - B, p - R
+                if not (abs(dB) > threshold and abs(dR) > threshold and dB * dR > 0):
+                    ok = False
+                    break
+                sev = min(sev, abs(dB), abs(dR))
+            if ok and len({(p - B) > 0 for _, p in run}) == 1:
+                cands.append((sev, [d for d, _ in run]))
+    cands.sort(key=lambda c: c[0], reverse=True)
+    seen, out = set(), []
+    for sev, ds in cands:
+        if any(d in seen for d in ds):
+            continue
+        seen.update(ds)
+        out.append((sev, ds))
+    return out
+
+
+def is_par_spike(p_prev, p, p_next, threshold=PAR_ANOMALY_THRESHOLD):
+    """Single-day special case of par_anomaly_runs (kept for tests/callers)."""
+    if p is None or p_prev is None or p_next is None:
+        return False
+    return (
+        abs(p - p_prev) > threshold
+        and abs(p - p_next) > threshold
+        and (p - p_prev) * (p - p_next) > 0
+    )
+
+
+def null_par(mbs_date, db_path=DEFAULT_DB_PATH):
+    """
+    Null out a day's par coupon, bracket, and every par-derived field (spreads
+    and spread QTD changes), keeping the coupon prices and treasury data.
+    Used for spike/bad-mark days: a gap on the chart instead of a false spike.
+    """
+    if isinstance(mbs_date, date):
+        mbs_date = mbs_date.isoformat()
+    with _connect(db_path) as conn:
+        conn.execute(
+            """UPDATE daily_spreads
+               SET par_coupon=NULL, coupon_low=NULL, price_low=NULL,
+                   coupon_high=NULL, price_high=NULL,
+                   spread_5yr=NULL, spread_10yr=NULL, spread_avg=NULL,
+                   qtd_chg_spread_5yr=NULL, qtd_chg_spread_10yr=NULL,
+                   qtd_chg_spread_avg=NULL
+               WHERE mbs_date=?""",
+            (mbs_date,),
+        )
+
+
 def get_quarter_start(d):
     """First calendar day of the quarter containing date d."""
     if isinstance(d, str):

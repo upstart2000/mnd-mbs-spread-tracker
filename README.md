@@ -16,10 +16,23 @@ the 5yr/10yr Treasury par yields.
   (~10 years back) and finds the latest trading date with >= 2 coupon closes.
 - **`par_coupon.py`** - linear interpolation between the coupon just below
   par (price <= 100) and the one just above (price > 100); extrapolates from
-  the two nearest coupons if all three sit on the same side of par.
+  the two nearest coupons if all three sit on the same side of par. Sanity
+  guards: the chosen pair must slope upward in price (flat/inverted days
+  yield no par rather than a garbage number), and an extrapolated par
+  outside [1, 10] is rejected as a numerical artifact. Weekend dates are
+  skipped (MBS doesn't trade weekends).
 - **`treasury_rates.py`** - fetches 5yr/10yr UST par yields (Treasury.gov
   primary, Yahoo Finance `^FVX`/`^TNX` fallback).
 - **`db.py`** - SQLite storage (`mnd_spreads.db`), one row per trading day:
+  the three UMBS closes, the par bracket + par coupon, Treasury rates,
+  spreads (bps), and quarter-to-date (QTD) change vs. the prior quarter's
+  last close. Also owns the par-anomaly guard (`par_anomaly_runs` /
+  `null_par`): a run of 1-3 trading days whose par deviates >1 coupon point
+  from the nearest good par on BOTH sides (a hump/dip that fully reverts)
+  is bad coupon marks in MND's feed - the par coupon tracks the rate level
+  and never moves like that. Anomalous runs are nulled (chart gap) instead
+  of plotted. The nightly job re-scans after every write, so new bad marks
+  are caught automatically the next day.
   the three UMBS closes, the par bracket + par coupon, Treasury rates,
   spreads (bps), and quarter-to-date (QTD) change vs. the prior quarter's
   last close.

@@ -74,6 +74,8 @@ def run_backfill(db_path=db.DEFAULT_DB_PATH, start=None, end=None, skip_existing
             # holidays, where neither source has data anyway.
             allow_yahoo = (today - d).days <= 5
             record = build_daily_record(prices, d, allow_yahoo_fallback=allow_yahoo)
+            if record is None:
+                continue  # weekend / non-trading day
             record.update(db.compute_qtd_fields(record, db_path=db_path))
             db.upsert_day(record, db_path=db_path)
             written += 1

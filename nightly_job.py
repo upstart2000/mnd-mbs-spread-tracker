@@ -85,6 +85,28 @@ def run_nightly_job(db_path=db.DEFAULT_DB_PATH, expected_date=None, allow_yahoo_
             return existing
 
     record = build_daily_record(prices, trade_date, allow_yahoo_fallback=allow_yahoo_fallback)
+    if record is None:
+        # weekend (or otherwise non-trading) date - nothing to write
+        logger.info("Skipping %s: non-trading day.", trade_date)
+        return None
+
+    # Anomaly guard: a run of 1-3 days whose par deviates >1pt from the nearest
+    # good par on both sides (fully reverts) is bad MND marks, not a market
+    # move - null it before computing QTD so neither the chart nor the deltas
+    # carry the artifact. extra_row lends today's not-yet-written par as
+    # right-side context so runs ending yesterday can be judged; a run ending
+    # today can't be judged until tomorrow (no right side yet). Idempotent:
+    # already-nulled runs never reappear in the scan.
+    today_str = trade_date.isoformat()
+    for sev, dates in db.par_anomaly_runs(
+        db_path=db_path, extra_row=(today_str, record["par_coupon"])
+    ):
+        for d in dates:
+            if d == today_str:
+                continue
+            logger.warning("Nulling par anomaly %s (severity %.2f) as bad marks.", d, sev)
+            db.null_par(d, db_path=db_path)
+
     record.update(db.compute_qtd_fields(record, db_path=db_path))
 
     if record["ust_stale"]:
@@ -94,7 +116,8 @@ def run_nightly_job(db_path=db.DEFAULT_DB_PATH, expected_date=None, allow_yahoo_
             trade_date,
         )
     if record["par_coupon"] is None:
-        logger.warning("Par coupon not computable for %s: fewer than two usable coupon prices.", trade_date)
+        logger.warning("Par coupon not computable for %s: fewer than two usable coupon prices, "
+                       "or the coupon curve was flat/inverted/unplausible that day.", trade_date)
 
     db.upsert_day(record, db_path=db_path)
 

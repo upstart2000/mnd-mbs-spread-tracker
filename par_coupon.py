@@ -9,9 +9,35 @@ between the two prices.
 
 If every quoted coupon sits on the same side of par, there is no true bracket
 to interpolate within; fall back to extrapolating along the same line using
-the two coupons nearest par on that side. Returns None only when fewer than
-two usable prices exist, or the two chosen prices are identical (degenerate).
+the two coupons nearest par on that side.
+
+Sanity guards (added after history rows came back with par between -379
+and +369, wrecking the spread chart):
+- the chosen pair must be strictly upward-sloping in price (p_high > p_low).
+  A flat or inverted pair means that day's coupon curve is broken (stale
+  mark, crossed quotes) and no meaningful line runs through it. This is the
+  guard that kills the explosions: every one of them came from dividing by
+  a near-zero or negative price gap;
+- extrapolated par must land inside a loose [1, 10] plausibility band, a
+  backstop against divide-by-near-zero artifacts. Interpolation is
+  self-bounded by its bracket and needs no band.
+
+Note: for most of 2016-2021 the 5.5/6.0/6.5 stack sat entirely above par, so
+par is routinely an extrapolation a couple of points below 5.5 - that is the
+straight-line model working as intended, not an error. Only numerically
+degenerate days yield None (shown as gaps, not spikes).
+
+Returns None when fewer than two usable prices exist, when the chosen pair
+is flat/inverted, or when the extrapolation lands outside the plausible band.
 """
+
+# Loose plausibility band for extrapolated par only: a backstop against
+# divide-by-near-zero artifacts. True par 2016-2026 never left roughly
+# [2.5, 7]; this band is deliberately wide so it never touches real history,
+# but it catches the linear model's degenerate outputs (it once printed
+# par = 0.29 with 5.5s at 102.77 - pure numerical artifact).
+EXTRAPOLATED_PAR_MIN = 1.0
+EXTRAPOLATED_PAR_MAX = 10.0
 
 
 def compute_par_coupon(coupon_prices):
@@ -38,19 +64,26 @@ def compute_par_coupon(coupon_prices):
             c_high, p_high = c, p  # first coupon above par, right after the sub-100 run
             break
 
+    extrapolated = False
     if c_low is None:
         # every coupon prices above par - extrapolate using the two lowest coupons
+        extrapolated = True
         c_low, c_high = coupons_sorted[0], coupons_sorted[1]
         p_low, p_high = usable[c_low], usable[c_high]
     elif c_high is None:
         # every coupon prices at/below par - extrapolate using the two highest coupons
+        extrapolated = True
         c_high, c_low = coupons_sorted[-1], coupons_sorted[-2]
         p_high, p_low = usable[c_high], usable[c_low]
 
-    if p_high == p_low:
-        return None  # degenerate, avoid divide-by-zero
+    if not p_high > p_low:
+        return None  # flat or inverted pair: no meaningful line through it
 
     par_coupon = c_low + (100 - p_low) * (c_high - c_low) / (p_high - p_low)
+
+    if extrapolated and not (EXTRAPOLATED_PAR_MIN <= par_coupon <= EXTRAPOLATED_PAR_MAX):
+        return None  # divide-by-near-zero artifact, not a market level
+
     return round(par_coupon, 4), (c_low, p_low), (c_high, p_high)
 
 
