@@ -225,10 +225,9 @@ for col, name, color in series:
         go.Scatter(
             x=df["mbs_date"],
             y=df[col],
-            mode="lines+markers",
+            mode="lines",
             name=name,
             line=dict(color=color, width=2),
-            marker=dict(symbol="diamond-open", size=8, line=dict(width=1.5, color=color)),
         )
     )
 
