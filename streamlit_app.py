@@ -18,6 +18,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import db
+import mreit_estimator
 
 # Fixed categorical order (validated for CVD separation - see dataviz skill palette).
 COLOR_SPREAD_5YR = "#2a78d6"   # blue
@@ -165,6 +166,8 @@ st.caption(
     "US Treasuries - for estimating mortgage REIT book value moves intra-quarter."
 )
 
+tab_spread, tab_bvest = st.tabs(["Spread Tracker", "mREIT BV Estimator"])
+
 df = load_dataframe()
 
 if df.empty:
@@ -186,101 +189,106 @@ if prior_row is not None:
             "reflect the full gap, not a single day's move."
         )
 
-# --- QTD change section (prominent, up top) ---
-if today_row.get("qtd_ref_date") is None:
-    st.info("No prior-quarter baseline available yet for this dataset - QTD change can't be computed for the current quarter's first stretch of data.")
-else:
-    cols = st.columns(5)
-    with cols[0]:
-        qtd_metric("5yr UST", today_row.get("ust_5yr"), "%", today_row.get("qtd_chg_ust_5yr"))
-    with cols[1]:
-        qtd_metric("10yr UST", today_row.get("ust_10yr"), "%", today_row.get("qtd_chg_ust_10yr"))
-    with cols[2]:
-        qtd_metric("Spread vs 5yr", today_row.get("spread_5yr"), " bps", today_row.get("qtd_chg_spread_5yr"))
-    with cols[3]:
-        qtd_metric("Spread vs 10yr", today_row.get("spread_10yr"), " bps", today_row.get("qtd_chg_spread_10yr"))
-    with cols[4]:
-        qtd_metric("Spread vs 5/10yr", today_row.get("spread_avg"), " bps", today_row.get("qtd_chg_spread_avg"))
+with tab_spread:
+    # --- QTD change section (prominent, up top) ---
+    if today_row.get("qtd_ref_date") is None:
+        st.info("No prior-quarter baseline available yet for this dataset - QTD change can't be computed for the current quarter's first stretch of data.")
+    else:
+        cols = st.columns(5)
+        with cols[0]:
+            qtd_metric("5yr UST", today_row.get("ust_5yr"), "%", today_row.get("qtd_chg_ust_5yr"))
+        with cols[1]:
+            qtd_metric("10yr UST", today_row.get("ust_10yr"), "%", today_row.get("qtd_chg_ust_10yr"))
+        with cols[2]:
+            qtd_metric("Spread vs 5yr", today_row.get("spread_5yr"), " bps", today_row.get("qtd_chg_spread_5yr"))
+        with cols[3]:
+            qtd_metric("Spread vs 10yr", today_row.get("spread_10yr"), " bps", today_row.get("qtd_chg_spread_10yr"))
+        with cols[4]:
+            qtd_metric("Spread vs 5/10yr", today_row.get("spread_avg"), " bps", today_row.get("qtd_chg_spread_avg"))
 
-st.divider()
+    st.divider()
 
-# --- Daily table ---
-current_qe, prior_qe = db.get_quarter_end_rows(today_row["mbs_date"].date())
-daily_table = build_daily_table(today_row, prior_row, current_qe, prior_qe)
-st.dataframe(style_daily_table(daily_table), width="stretch")
+    # --- Daily table ---
+    current_qe, prior_qe = db.get_quarter_end_rows(today_row["mbs_date"].date())
+    daily_table = build_daily_table(today_row, prior_row, current_qe, prior_qe)
+    st.dataframe(style_daily_table(daily_table), width="stretch")
 
-st.divider()
+    st.divider()
 
-# --- Historical chart ---
-st.subheader("Historical Spread")
+    # --- Historical chart ---
+    st.subheader("Historical Spread")
 
-# Time window is chosen in Streamlit (not Plotly) so the figure is rebuilt
-# from only the visible data - that is what lets the y-axis rescale to each
-# window. Plotly's own range buttons can't do that.
-window = st.segmented_control(
-    "Time range",
-    ["1M", "3M", "6M", "1Y", "2Y", "2023+", "All"],
-    default="2023+",
-    label_visibility="collapsed",
-)
-_window_months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24}
-if window == "All":
-    chart_df = df
-elif window == "2023+":
-    # Default view: pre-2023 data has interpolation artifacts Sunil doesn't
-    # trust, so the chart opens on the clean era. Full history under "All".
-    chart_df = df[df["mbs_date"] >= "2023-01-01"]
-else:
-    cutoff = df["mbs_date"].max() - pd.DateOffset(months=_window_months[window])
-    chart_df = df[df["mbs_date"] >= cutoff]
+    # Time window is chosen in Streamlit (not Plotly) so the figure is rebuilt
+    # from only the visible data - that is what lets the y-axis rescale to each
+    # window. Plotly's own range buttons can't do that.
+    window = st.segmented_control(
+        "Time range",
+        ["1M", "3M", "6M", "1Y", "2Y", "2023+", "All"],
+        default="2023+",
+        label_visibility="collapsed",
+    )
+    _window_months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24}
+    if window == "All":
+        chart_df = df
+    elif window == "2023+":
+        # Default view: pre-2023 data has interpolation artifacts Sunil doesn't
+        # trust, so the chart opens on the clean era. Full history under "All".
+        chart_df = df[df["mbs_date"] >= "2023-01-01"]
+    else:
+        cutoff = df["mbs_date"].max() - pd.DateOffset(months=_window_months[window])
+        chart_df = df[df["mbs_date"] >= cutoff]
 
-fig = go.Figure()
-series = [
-    ("spread_5yr", "Spread vs 5yr", COLOR_SPREAD_5YR),
-    ("spread_10yr", "Spread vs 10yr", COLOR_SPREAD_10YR),
-    ("spread_avg", "Spread vs 5/10yr", COLOR_SPREAD_AVG),
-]
-for col, name, color in series:
-    fig.add_trace(
-        go.Scatter(
-            x=chart_df["mbs_date"],
-            y=chart_df[col],
-            mode="lines",
-            name=name,
-            line=dict(color=color, width=2),
+    fig = go.Figure()
+    series = [
+        ("spread_5yr", "Spread vs 5yr", COLOR_SPREAD_5YR),
+        ("spread_10yr", "Spread vs 10yr", COLOR_SPREAD_10YR),
+        ("spread_avg", "Spread vs 5/10yr", COLOR_SPREAD_AVG),
+    ]
+    for col, name, color in series:
+        fig.add_trace(
+            go.Scatter(
+                x=chart_df["mbs_date"],
+                y=chart_df[col],
+                mode="lines",
+                name=name,
+                line=dict(color=color, width=2),
+            )
         )
+
+    # Y-axis always starts at zero - a negative MBS/Treasury spread isn't a real
+    # reading (the few negatives are interpolation artifacts) - and its top
+    # autoscales to the visible window so each range fills the chart.
+    y_top = max(
+        chart_df["spread_5yr"].max(),
+        chart_df["spread_10yr"].max(),
+        chart_df["spread_avg"].max(),
+    )
+    y_top = float(y_top) if pd.notna(y_top) and y_top > 0 else 100.0
+    fig.update_layout(
+        xaxis_title="Date",
+        yaxis_title="Spread (bps)",
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin=dict(t=60, b=40),
+        dragmode="zoom",  # drag a box on the chart to zoom; double-click to reset
+    )
+    fig.update_xaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=False)
+    fig.update_yaxes(
+        showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE,
+        range=[0, y_top * 1.05],
     )
 
-# Y-axis always starts at zero - a negative MBS/Treasury spread isn't a real
-# reading (the few negatives are interpolation artifacts) - and its top
-# autoscales to the visible window so each range fills the chart.
-y_top = max(
-    chart_df["spread_5yr"].max(),
-    chart_df["spread_10yr"].max(),
-    chart_df["spread_avg"].max(),
-)
-y_top = float(y_top) if pd.notna(y_top) and y_top > 0 else 100.0
-fig.update_layout(
-    xaxis_title="Date",
-    yaxis_title="Spread (bps)",
-    hovermode="x unified",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    margin=dict(t=60, b=40),
-    dragmode="zoom",  # drag a box on the chart to zoom; double-click to reset
-)
-fig.update_xaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=False)
-fig.update_yaxes(
-    showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE,
-    range=[0, y_top * 1.05],
-)
+    st.plotly_chart(fig, width="stretch", config={"displayModeBar": True})
 
-st.plotly_chart(fig, width="stretch", config={"displayModeBar": True})
+    with st.expander("Show underlying data"):
+        st.dataframe(df.drop(columns=["coupon_curve"]), width="stretch")
 
-with st.expander("Show underlying data"):
-    st.dataframe(df.drop(columns=["coupon_curve"]), width="stretch")
+    st.divider()
+    if gap_warning:
+        st.warning(gap_warning)
 
-st.divider()
-if gap_warning:
-    st.warning(gap_warning)
+
+with tab_bvest:
+    mreit_estimator.render(today_row)
