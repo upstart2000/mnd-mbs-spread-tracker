@@ -232,6 +232,10 @@ def render(today_row):
         if r5 is not None and s_avg is not None else
         "QTD baselines unavailable - enter shocks manually."
     )
+    st.markdown(
+        "<style>div[data-testid='stNumberInput']{max-width:210px}</style>",
+        unsafe_allow_html=True,
+    )
     c1, c2, c3 = st.columns(3)
     with c1:
         rate_chg = st.number_input(
@@ -276,7 +280,14 @@ def render(today_row):
              subset=["ΔBV from rates (%)", "ΔBV from spreads (%)", "Total ΔBV (%)"])
         .set_properties(**{"text-align": "center"})
     )
-    st.dataframe(styled, width="stretch", hide_index=True)
+    st.dataframe(
+        styled,
+        width="content",
+        hide_index=True,
+        column_config={
+            c: st.column_config.TextColumn(width="small") for c in df.columns
+        },
+    )
 
     is_live, last_session, now_et = market_state()
     if st.button("↻ Refresh prices",
