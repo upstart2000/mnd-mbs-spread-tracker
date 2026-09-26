@@ -219,13 +219,17 @@ st.subheader("Historical Spread")
 # window. Plotly's own range buttons can't do that.
 window = st.segmented_control(
     "Time range",
-    ["1M", "3M", "6M", "1Y", "2Y", "5Y", "All"],
-    default="All",
+    ["1M", "3M", "6M", "1Y", "2Y", "2023+", "All"],
+    default="2023+",
     label_visibility="collapsed",
 )
-_window_months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24, "5Y": 60}
+_window_months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24}
 if window == "All":
     chart_df = df
+elif window == "2023+":
+    # Default view: pre-2023 data has interpolation artifacts Sunil doesn't
+    # trust, so the chart opens on the clean era. Full history under "All".
+    chart_df = df[df["mbs_date"] >= "2023-01-01"]
 else:
     cutoff = df["mbs_date"].max() - pd.DateOffset(months=_window_months[window])
     chart_df = df[df["mbs_date"] >= cutoff]
