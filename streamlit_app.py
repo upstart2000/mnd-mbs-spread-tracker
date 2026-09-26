@@ -214,6 +214,22 @@ st.divider()
 # --- Historical chart ---
 st.subheader("Historical Spread")
 
+# Time window is chosen in Streamlit (not Plotly) so the figure is rebuilt
+# from only the visible data - that is what lets the y-axis rescale to each
+# window. Plotly's own range buttons can't do that.
+window = st.segmented_control(
+    "Time range",
+    ["1M", "3M", "6M", "1Y", "2Y", "5Y", "All"],
+    default="All",
+    label_visibility="collapsed",
+)
+_window_months = {"1M": 1, "3M": 3, "6M": 6, "1Y": 12, "2Y": 24, "5Y": 60}
+if window == "All":
+    chart_df = df
+else:
+    cutoff = df["mbs_date"].max() - pd.DateOffset(months=_window_months[window])
+    chart_df = df[df["mbs_date"] >= cutoff]
+
 fig = go.Figure()
 series = [
     ("spread_5yr", "Spread vs 5yr", COLOR_SPREAD_5YR),
@@ -223,14 +239,23 @@ series = [
 for col, name, color in series:
     fig.add_trace(
         go.Scatter(
-            x=df["mbs_date"],
-            y=df[col],
+            x=chart_df["mbs_date"],
+            y=chart_df[col],
             mode="lines",
             name=name,
             line=dict(color=color, width=2),
         )
     )
 
+# Y-axis always starts at zero - a negative MBS/Treasury spread isn't a real
+# reading (the few negatives are interpolation artifacts) - and its top
+# autoscales to the visible window so each range fills the chart.
+y_top = max(
+    chart_df["spread_5yr"].max(),
+    chart_df["spread_10yr"].max(),
+    chart_df["spread_avg"].max(),
+)
+y_top = float(y_top) if pd.notna(y_top) and y_top > 0 else 100.0
 fig.update_layout(
     xaxis_title="Date",
     yaxis_title="Spread (bps)",
@@ -241,23 +266,11 @@ fig.update_layout(
     margin=dict(t=60, b=40),
     dragmode="zoom",  # drag a box on the chart to zoom; double-click to reset
 )
-fig.update_xaxes(
-    showgrid=True,
-    gridcolor=GRIDLINE,
-    zeroline=False,
-    rangeslider=dict(visible=True),  # drag handles to zoom any time window
-    rangeselector=dict(
-        buttons=[
-            dict(count=1, label="1M", step="month", stepmode="backward"),
-            dict(count=3, label="3M", step="month", stepmode="backward"),
-            dict(count=6, label="6M", step="month", stepmode="backward"),
-            dict(count=1, label="YTD", step="year", stepmode="todate"),
-            dict(count=1, label="1Y", step="year", stepmode="backward"),
-            dict(step="all", label="All"),
-        ]
-    ),
+fig.update_xaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=False)
+fig.update_yaxes(
+    showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE,
+    range=[0, y_top * 1.05],
 )
-fig.update_yaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE)
 
 st.plotly_chart(fig, width="stretch", config={"displayModeBar": True})
 
