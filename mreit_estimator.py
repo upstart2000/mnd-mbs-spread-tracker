@@ -167,8 +167,8 @@ def estimate(rate_chg_bps, spread_chg_bps, default_spread_sens=10.0):
         rows.append({
             "REIT": t,
             "Q2'26 BV ($)": bv_q2,
-            "ΔBV from rates (%)": d_rate,
-            "ΔBV from spreads (%)": d_spread,
+            "ΔBV rates (%)": d_rate,
+            "ΔBV spreads (%)": d_spread,
             "Total ΔBV (%)": total,
             "Est. BV today ($)": est_bv,
         })
@@ -314,19 +314,22 @@ def render(today_row):
     for r in rows:
         info = dividends.get(r["REIT"]) or {}
         r["Accrued div. ($)"] = info.get("accrued")
-        if r["Est. BV today ($)"] is not None and info.get("accrued"):
-            r["Est. BV today ($)"] += info["accrued"]
+        mech = r["Est. BV today ($)"]
+        r["Est. BV + accr. div. ($)"] = (
+            mech + info["accrued"]
+            if mech is not None and info.get("accrued") else None
+        )
 
     prices = fetch_prices(TICKER_ORDER)
     for r in rows:
         p = prices.get(r["REIT"])
-        bv = r["Est. BV today ($)"]
+        bv = r["Est. BV + accr. div. ($)"]
         r["Price ($)"] = p
-        r["Price / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
+        r["P / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
     df = pd.DataFrame(rows)[[
-        "REIT", "Q2'26 BV ($)", "ΔBV from rates (%)", "ΔBV from spreads (%)",
-        "Total ΔBV (%)", "Accrued div. ($)", "Est. BV today ($)",
-        "Price ($)", "Price / Est. BV (%)",
+        "REIT", "Q2'26 BV ($)", "ΔBV rates (%)", "ΔBV spreads (%)",
+        "Total ΔBV (%)", "Est. BV today ($)", "Accrued div. ($)",
+        "Est. BV + accr. div. ($)", "Price ($)", "P / Est. BV (%)",
     ]]
 
     def _pct(v):
@@ -336,27 +339,28 @@ def render(today_row):
         df.style
         .format({
             "Q2'26 BV ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
-            "ΔBV from rates (%)": _pct,
-            "ΔBV from spreads (%)": _pct,
+            "ΔBV rates (%)": _pct,
+            "ΔBV spreads (%)": _pct,
             "Total ΔBV (%)": _pct,
-            "Accrued div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Est. BV today ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
+            "Accrued div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
+            "Est. BV + accr. div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Price ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
-            "Price / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
+            "P / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
         })
         .map(lambda v: "color: #e34948" if pd.notna(v) and v < 0 else
              ("color: #006300" if pd.notna(v) and v > 0 else ""),
-             subset=["ΔBV from rates (%)", "ΔBV from spreads (%)",
+             subset=["ΔBV rates (%)", "ΔBV spreads (%)",
                      "Total ΔBV (%)", "Accrued div. ($)"])
         .set_properties(**{"text-align": "center"})
     )
     st.dataframe(
         styled,
-        width="content",
+        width="stretch",
         hide_index=True,
         column_config={
             c: st.column_config.TextColumn(
-                width="small" if c == "REIT" else "medium")
+                width="medium" if c == "Est. BV + accr. div. ($)" else "small")
             for c in df.columns
         },
     )
@@ -370,8 +374,8 @@ def render(today_row):
                   else f"last close ({last_session})")
     st.caption(
         "Accrued dividend assumes each REIT earns its announced dividend: "
-        "annualized latest payout × days since last ex-date ÷ 365, added to "
-        "estimated BV. "
+        "annualized latest payout × days since last ex-date ÷ 365. "
+        "Price / Est. BV is on the with-accrual estimate. "
         "ORC and MFA disclose no spread sensitivity grid — their spread effect "
         f"uses the default sensitivity above ({default_sens:g}% of BV per +25 bps "
         "widening). MFA's Q2'26 book value is economic book value ($13.20). "
