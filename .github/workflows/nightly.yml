@@ -1,0 +1,55 @@
+name: Nightly MND/Treasury ingestion
+
+# Target: first attempt at 9:00 PM ET, retry at 9:45 PM ET. GitHub Actions
+# cron is UTC-only and doesn't shift for daylight saving, so each attempt
+# gets two cron lines - one for EDT (UTC-4) and one for EST (UTC-5). That
+# means this fires 4x on any given weekday, but only 2 of those 4 are ever
+# "real" for the current season; the other 2 land an hour off and are
+# harmless no-ops once the day's row already exists (nightly_job.py's
+# skip-if-complete check makes an off-season or retry firing a fast exit
+# rather than a wasted re-fetch). Day-of-week is 2-6 (Tue-Sat UTC)
+# because a weekday evening in ET lands on the *next* UTC calendar day.
+on:
+  schedule:
+    - cron: '0 1 * * 2-6'   # 9:00 PM EDT
+    - cron: '0 2 * * 2-6'   # 9:00 PM EST
+    - cron: '45 1 * * 2-6'  # 9:45 PM EDT retry
+    - cron: '45 2 * * 2-6'  # 9:45 PM EST retry
+  workflow_dispatch: {}     # manual trigger for testing / catch-up runs
+
+permissions:
+  contents: write
+
+concurrency:
+  group: nightly-ingestion
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run nightly ingestion job
+        run: python nightly_job.py
+
+      - name: Commit and push updated database
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mnd_spreads.db
+          if git diff --cached --quiet; then
+            echo "No changes to commit (row already existed, or job made no writes)."
+          else
+            git commit -m "Nightly data update: $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
