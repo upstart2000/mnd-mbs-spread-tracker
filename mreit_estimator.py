@@ -12,7 +12,7 @@ Method (per Sunil's spec):
   actual shock (with a (0, 0) anchor; extrapolates the nearest segment beyond
   the grid). The reported % (common equity / tangible CE / NAV / BV-share) is
   applied directly as the % change in book value per share (constant share
-  count assumption - this is what makes Dynex's "% of NAV" grid usable as-is).
+  count assumption - this is what makes Annaly's "% of NAV" grid usable as-is).
 - Total estimated % change = rate effect + spread effect. Additivity is
   explicitly supported by the filings: ARR's 10-Q says the spread impact is
   "in addition to" the rate sensitivity; IVR's says it is "independent of" it.
@@ -30,20 +30,11 @@ import streamlit as st
 # ----------------------------------------------------------------------------
 REITS = {
     "AGNC": {
+        # Attribution corrected 2026-09-26 per Sunil's labeling of the source
+        # screenshots: this is the "Tangible Common Equity" grid (±25/50/75bp
+        # rates, ±10/25/50bp spreads, "basis risk").
         "name": "AGNC Investment Corp",
         "bv_q2": 8.58,  # tangible net BV / common share, 6/30/2026 (AGNC headline metric)
-        "rate_grid": [(-100, -6.9), (-50, -0.8), (50, -3.5), (100, -9.4)],
-        "rate_denom": "common shareholders' equity",
-        "rate_source": "Q2'26 earnings presentation",
-        "spread_grid": [(-20, 9.2), (-10, 4.6), (10, -4.6), (20, -9.2)],
-        "spread_denom": "common shareholders' equity",
-        # Footnote: +/-20 row blends a 20bp OAS shift (Agency RMBS/CMBS)
-        # with a 50bp shift in CMBS IO; treated as the 20bp point.
-        "spread_source": "Q2'26 earnings presentation",
-    },
-    "NLY": {
-        "name": "Annaly Capital Management",
-        "bv_q2": 20.15,  # BV / common share, 6/30/2026
         "rate_grid": [(-75, 0.4), (-50, 1.5), (-25, 1.3),
                       (25, -2.3), (50, -5.3), (75, -8.8)],
         "rate_denom": "tangible common equity",
@@ -53,16 +44,34 @@ REITS = {
         "spread_denom": "tangible common equity",
         "spread_source": "Q2'26 earnings presentation ('basis risk')",
     },
-    "DX": {
-        "name": "Dynex Capital",
-        "bv_q2": 12.90,  # BV / common share, 6/30/2026
-        "rate_grid": [(-75, -2.0), (-50, -0.6), (-25, 0.1),
+    "NLY": {
+        # Attribution corrected 2026-09-26 per Sunil: this is the "% of NAV"
+        # grid (±25/50/75bp rates, ±5/15/25bp spreads).
+        "name": "Annaly Capital Management",
+        "bv_q2": 20.15,  # BV / common share, 6/30/2026
+        "rate_grid": [(-75, 2.0), (-50, 0.6), (-25, 0.1),
                       (25, -0.8), (50, -2.2), (75, -3.9)],
         "rate_denom": "NAV",
         "rate_source": "Q2'26 earnings presentation",
         "spread_grid": [(-25, 8.9), (-15, 5.3), (-5, 1.8),
                         (5, -1.8), (15, -5.2), (25, -8.7)],
         "spread_denom": "NAV",
+        "spread_source": "Q2'26 earnings presentation",
+    },
+    "DX": {
+        # Attribution corrected 2026-09-26 per Sunil: this is the "Percentage
+        # Change in Common Shareholders' Equity" grid (±50/±100bp rates,
+        # ±10bp and ±20bp OAS spreads). The CMBS IO footnote fits Dynex, which
+        # holds CMBS IO.
+        "name": "Dynex Capital",
+        "bv_q2": 12.90,  # BV / common share, 6/30/2026
+        "rate_grid": [(-100, -6.9), (-50, -0.8), (50, -3.5), (100, -9.4)],
+        "rate_denom": "common shareholders' equity",
+        "rate_source": "Q2'26 earnings presentation",
+        "spread_grid": [(-20, 9.2), (-10, 4.6), (10, -4.6), (20, -9.2)],
+        "spread_denom": "common shareholders' equity",
+        # Footnote: +/-20 row blends a 20bp OAS shift (Agency RMBS/CMBS)
+        # with a 50bp shift in CMBS IO; treated as the 20bp point.
         "spread_source": "Q2'26 earnings presentation",
     },
     "ORC": {
