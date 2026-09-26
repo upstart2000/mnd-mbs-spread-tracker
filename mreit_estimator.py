@@ -21,7 +21,9 @@ Method (per Sunil's spec):
 """
 
 import pandas as pd
+import pandas_market_calendars as mcal
 import streamlit as st
+import yfinance as yf
 
 # ----------------------------------------------------------------------------
 # Disclosed sensitivity grids, as of June 30 2026.
@@ -108,7 +110,7 @@ REITS = {
     },
     "MFA": {
         "name": "MFA Financial",
-        "bv_q2": 12.71,  # GAAP BV / common share, 6/30/2026 (economic BV $13.20)
+        "bv_q2": 13.20,  # economic BV / common share, 6/30/2026 (GAAP BV $12.71)
         "rate_grid": [(-100, 4.80), (-50, 3.09), (50, -4.48), (100, -10.34)],
         "rate_denom": "total stockholders' equity",
         "rate_source": "Q2'26 10-Q (via earnings materials)",
@@ -154,10 +156,8 @@ def estimate(rate_chg_bps, spread_chg_bps, default_spread_sens=10.0):
         d_rate = interp_pct(info["rate_grid"], rate_chg_bps)
         if info["spread_grid"]:
             d_spread = interp_pct(info["spread_grid"], spread_chg_bps)
-            spread_basis = "disclosed"
         else:
             d_spread = -(default_spread_sens / 25.0) * spread_chg_bps
-            spread_basis = "default"
         total = d_rate + d_spread
         bv_q2 = info["bv_q2"]
         est_bv = bv_q2 * (1 + total / 100.0) if bv_q2 else None
@@ -166,11 +166,46 @@ def estimate(rate_chg_bps, spread_chg_bps, default_spread_sens=10.0):
             "Q2'26 BV ($)": bv_q2,
             "ΔBV from rates (%)": d_rate,
             "ΔBV from spreads (%)": d_spread,
-            "Spread basis": spread_basis,
             "Total ΔBV (%)": total,
             "Est. BV today ($)": est_bv,
         })
     return rows
+
+
+@st.cache_data(ttl=900)
+def fetch_prices(tickers):
+    """Latest price per ticker from Yahoo Finance (15-min delayed while open)."""
+    out = {}
+    try:
+        tk = yf.Tickers(" ".join(tickers))
+        for t in tickers:
+            try:
+                fi = dict(tk.tickers[t].fast_info)
+                px = fi.get("lastPrice") or fi.get("previousClose")
+                out[t] = float(px) if px else None
+            except Exception:
+                out[t] = None
+    except Exception:
+        out = {t: None for t in tickers}
+    return out
+
+
+def market_state():
+    """NYSE regular-session state: (is_live, last_session_str, now_str), ET."""
+    try:
+        nyse = mcal.get_calendar("NYSE")
+        now = pd.Timestamp.now(tz="America/New_York")
+        sched = nyse.schedule(start_date=(now - pd.Timedelta(days=10)).date(),
+                              end_date=now.date())
+        if not sched.empty:
+            last = sched.iloc[-1]
+            live = last["market_open"] <= now <= last["market_close"]
+            return (live,
+                    last.name.strftime("%a %b %d, %Y"),
+                    now.strftime("%I:%M %p ET").lstrip("0"))
+    except Exception:
+        pass
+    return False, "", ""
 
 
 def render(today_row):
@@ -213,6 +248,13 @@ def render(today_row):
             help="Used for REITs with no disclosed spread grid (ORC, MFA).")
 
     rows = estimate(rate_chg, spread_chg, default_sens)
+
+    prices = fetch_prices(TICKER_ORDER)
+    for r in rows:
+        p = prices.get(r["REIT"])
+        bv = r["Est. BV today ($)"]
+        r["Price ($)"] = p
+        r["Price / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
     df = pd.DataFrame(rows)
 
     def _pct(v):
@@ -226,6 +268,8 @@ def render(today_row):
             "ΔBV from spreads (%)": _pct,
             "Total ΔBV (%)": _pct,
             "Est. BV today ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
+            "Price ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
+            "Price / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
         })
         .map(lambda v: "color: #e34948" if pd.notna(v) and v < 0 else
              ("color: #006300" if pd.notna(v) and v > 0 else ""),
@@ -233,6 +277,20 @@ def render(today_row):
         .set_properties(**{"text-align": "center"})
     )
     st.dataframe(styled, width="stretch", hide_index=True)
+
+    is_live, last_session, now_et = market_state()
+    if st.button("↻ Refresh prices",
+                 help="Re-fetch the latest prices from Yahoo Finance"):
+        fetch_prices.clear()
+        st.rerun()
+    price_note = (f"live (15-min delayed), as of {now_et}" if is_live
+                  else f"last close ({last_session})")
+    st.caption(
+        "ORC and MFA disclose no spread sensitivity grid — their spread effect "
+        f"uses the default sensitivity above ({default_sens:g}% of BV per +25 bps "
+        "widening). MFA's Q2'26 book value is economic book value ($13.20). "
+        f"Prices via Yahoo Finance — {price_note}."
+    )
 
     with st.expander("Disclosed sensitivity grids & methodology"):
         st.markdown(
@@ -243,7 +301,7 @@ def render(today_row):
             "spread impact is \"in addition to\" rate sensitivity; IVR's says it is "
             "\"independent of\" it.\n"
             "- **Denominators:** each company's reported % is applied directly as "
-            "the % change in BV/share (constant share count). Dynex reports % of "
+            "the % change in BV/share (constant share count). Annaly reports % of "
             "NAV, which equals % BV under that assumption.\n"
             "- **Defaults:** ORC and MFA disclose no spread grid, so the editable "
             "default above is used for them."
