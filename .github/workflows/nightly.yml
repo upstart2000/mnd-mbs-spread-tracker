@@ -1,27 +1,28 @@
-name: Nightly MND/Treasury ingestion
+name: Daily MND/Treasury ingestion (8 AM ET)
 
-# Target: first attempt at 9:00 PM ET, retry at 9:45 PM ET. GitHub Actions
-# cron is UTC-only and doesn't shift for daylight saving, so each attempt
-# gets two cron lines - one for EDT (UTC-4) and one for EST (UTC-5). That
-# means this fires 4x on any given weekday, but only 2 of those 4 are ever
-# "real" for the current season; the other 2 land an hour off and are
-# harmless no-ops once the day's row already exists (nightly_job.py's
-# skip-if-complete check makes an off-season or retry firing a fast exit
-# rather than a wasted re-fetch). Day-of-week is 2-6 (Tue-Sat UTC)
-# because a weekday evening in ET lands on the *next* UTC calendar day.
+# Target: first attempt at 8:00 AM ET, retry at 8:45 AM ET. Running in the
+# morning because MND's closes are finalized/displayed the next day.
+# GitHub Actions cron is UTC-only and doesn't shift for daylight saving, so
+# each attempt gets two cron lines - one for EDT (UTC-4) and one for EST
+# (UTC-5). That means this fires 4x on any given weekday, but only 2 of
+# those 4 are ever "real" for the current season; the other 2 land an hour
+# off and are harmless no-ops once the day's row already exists
+# (nightly_job.py's skip-if-complete check makes an off-season or retry
+# firing a fast exit rather than a wasted re-fetch). Day-of-week is 1-5
+# (Mon-Fri UTC) because 8 AM ET is the same UTC calendar day.
 on:
   schedule:
-    - cron: '0 1 * * 2-6'   # 9:00 PM EDT
-    - cron: '0 2 * * 2-6'   # 9:00 PM EST
-    - cron: '45 1 * * 2-6'  # 9:45 PM EDT retry
-    - cron: '45 2 * * 2-6'  # 9:45 PM EST retry
+    - cron: '0 12 * * 1-5'   # 8:00 AM EDT
+    - cron: '0 13 * * 1-5'   # 8:00 AM EST
+    - cron: '45 12 * * 1-5'  # 8:45 AM EDT retry
+    - cron: '45 13 * * 1-5'  # 8:45 AM EST retry
   workflow_dispatch: {}     # manual trigger for testing / catch-up runs
 
 permissions:
   contents: write
 
 concurrency:
-  group: nightly-ingestion
+  group: daily-ingestion
   cancel-in-progress: false
 
 jobs:

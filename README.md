@@ -26,7 +26,7 @@ the 5yr/10yr Treasury par yields.
 - **`pipeline.py`** - shared glue tying the above into one daily record.
 - **`nightly_job.py`** - pulls the latest MND closes, fetches rates,
   computes spreads/QTD, upserts into SQLite. Runs on a schedule via
-  `.github/workflows/nightly.yml` (GitHub Actions, ~9PM ET + 9:45PM ET retry),
+  `.github/workflows/nightly.yml` (GitHub Actions, 8:00 AM ET + 8:45 AM ET retry),
   which commits the updated `mnd_spreads.db` back to this repo.
 - **`backfill.py`** - one-time historical backfill straight from MND's chart
   history (no monthly archives needed - each coupon's full history comes back
@@ -55,7 +55,7 @@ to the most recent row before the current quarter's start, also in bps.
 ## Data notes
 
 - MND prices are indicative TBA prices (not FINRA settlement prices) and
-  post ~6PM ET; the nightly job runs ~9PM ET.
+  post ~6PM ET; the daily job runs 8:00 AM ET the next morning, once MND has finalized the prior day's closes.
 - Treasury.gov posts the day's par yields by early evening; if neither it nor
   the Yahoo fallback has same-day data, the row is written with NULL rates
   (`ust_stale=1`) and a later run fills it in.
