@@ -233,7 +233,10 @@ def render(today_row):
         "QTD baselines unavailable - enter shocks manually."
     )
     st.markdown(
-        "<style>div[data-testid='stNumberInput']{max-width:210px}</style>",
+        "<style>"
+        "div[data-testid='stNumberInput']{max-width:210px}"
+        "div[data-testid='stNumberInput'] label{white-space:nowrap}"
+        "</style>",
         unsafe_allow_html=True,
     )
     c1, c2, c3, _spacer = st.columns([1, 1, 1, 2])
@@ -247,9 +250,10 @@ def render(today_row):
             help="QTD change in MBS par-coupon spread. Positive = spreads widened.")
     with c3:
         default_sens = st.number_input(
-            "Default spread sensitivity (% per +25 bps)", value=10.0, step=0.5,
+            "Default spread sensitivity", value=10.0, step=0.5,
             min_value=0.0,
-            help="Used for REITs with no disclosed spread grid (ORC, MFA).")
+            help="Used for REITs with no disclosed spread grid (ORC, MFA). "
+                 "% of BV per +25 bps spread widening.")
 
     rows = estimate(rate_chg, spread_chg, default_sens)
 
