@@ -18,6 +18,9 @@ Method (per Sunil's spec):
   "in addition to" the rate sensitivity; IVR's says it is "independent of" it.
 - REITs with no disclosed spread grid (ORC, MFA) use a user-editable default
   sensitivity (default: 10% BV move per 25 bps spread move).
+- Accrued dividend: assumes the announced dividend approximates earnings;
+  annualized latest payout x days since last ex-date / 365 is added to the
+  estimated BV (frequencies and ex-dates from Yahoo Finance dividends).
 """
 
 import pandas as pd
@@ -172,6 +175,56 @@ def estimate(rate_chg_bps, spread_chg_bps, default_spread_sens=10.0):
     return rows
 
 
+@st.cache_data(ttl=43200)
+def fetch_dividends(tickers):
+    """Dividend accrual inputs per ticker from Yahoo Finance.
+
+    Returns {ticker: {annual, last_amt, mult, freq ('monthly'/'quarterly'),
+    last_ex (date str), days, accrued}} with accrued = annual * days / 365.
+    Annualized from the most recent payout so cuts/hikes are picked up
+    immediately; frequency from the median gap of recent payouts.
+    """
+    out = {}
+    try:
+        tk = yf.Tickers(" ".join(tickers))
+    except Exception:
+        return {t: None for t in tickers}
+    today = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
+    for t in tickers:
+        try:
+            d = tk.tickers[t].dividends
+            if d is None or d.empty:
+                out[t] = None
+                continue
+            d = d.copy()
+            d.index = pd.to_datetime(d.index)
+            if d.index.tz is not None:
+                d.index = d.index.tz_convert("America/New_York").tz_localize(None)
+            d = d[d.index.normalize() <= today]
+            if d.empty:
+                out[t] = None
+                continue
+            last_ex = d.index[-1].normalize()
+            last_amt = float(d.iloc[-1])
+            gaps = d.index.to_series().diff().dt.days.dropna().tail(4)
+            monthly = not gaps.empty and gaps.median() < 40
+            mult = 12 if monthly else 4
+            annual = last_amt * mult
+            days = max((today - last_ex).days, 0)
+            out[t] = {
+                "annual": annual,
+                "last_amt": last_amt,
+                "mult": mult,
+                "freq": "monthly" if monthly else "quarterly",
+                "last_ex": last_ex.date().isoformat(),
+                "days": days,
+                "accrued": annual * days / 365.0,
+            }
+        except Exception:
+            out[t] = None
+    return out
+
+
 @st.cache_data(ttl=900)
 def fetch_prices(tickers):
     """Latest price per ticker from Yahoo Finance (15-min delayed while open)."""
@@ -257,13 +310,24 @@ def render(today_row):
 
     rows = estimate(rate_chg, spread_chg, default_sens)
 
+    dividends = fetch_dividends(TICKER_ORDER)
+    for r in rows:
+        info = dividends.get(r["REIT"]) or {}
+        r["Accrued div. ($)"] = info.get("accrued")
+        if r["Est. BV today ($)"] is not None and info.get("accrued"):
+            r["Est. BV today ($)"] += info["accrued"]
+
     prices = fetch_prices(TICKER_ORDER)
     for r in rows:
         p = prices.get(r["REIT"])
         bv = r["Est. BV today ($)"]
         r["Price ($)"] = p
         r["Price / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows)[[
+        "REIT", "Q2'26 BV ($)", "ΔBV from rates (%)", "ΔBV from spreads (%)",
+        "Total ΔBV (%)", "Accrued div. ($)", "Est. BV today ($)",
+        "Price ($)", "Price / Est. BV (%)",
+    ]]
 
     def _pct(v):
         return f"{v:+.1f}%" if pd.notna(v) else "—"
@@ -275,13 +339,15 @@ def render(today_row):
             "ΔBV from rates (%)": _pct,
             "ΔBV from spreads (%)": _pct,
             "Total ΔBV (%)": _pct,
+            "Accrued div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Est. BV today ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Price ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Price / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
         })
         .map(lambda v: "color: #e34948" if pd.notna(v) and v < 0 else
              ("color: #006300" if pd.notna(v) and v > 0 else ""),
-             subset=["ΔBV from rates (%)", "ΔBV from spreads (%)", "Total ΔBV (%)"])
+             subset=["ΔBV from rates (%)", "ΔBV from spreads (%)",
+                     "Total ΔBV (%)", "Accrued div. ($)"])
         .set_properties(**{"text-align": "center"})
     )
     st.dataframe(
@@ -303,10 +369,13 @@ def render(today_row):
     price_note = (f"live (15-min delayed), as of {now_et}" if is_live
                   else f"last close ({last_session})")
     st.caption(
+        "Accrued dividend assumes each REIT earns its announced dividend: "
+        "annualized latest payout × days since last ex-date ÷ 365, added to "
+        "estimated BV. "
         "ORC and MFA disclose no spread sensitivity grid — their spread effect "
         f"uses the default sensitivity above ({default_sens:g}% of BV per +25 bps "
         "widening). MFA's Q2'26 book value is economic book value ($13.20). "
-        f"Prices via Yahoo Finance — {price_note}."
+        f"Prices and dividends via Yahoo Finance — {price_note}."
     )
 
     with st.expander("Disclosed sensitivity grids & methodology"):
@@ -321,7 +390,12 @@ def render(today_row):
             "the % change in BV/share (constant share count). Annaly reports % of "
             "NAV, which equals % BV under that assumption.\n"
             "- **Defaults:** ORC and MFA disclose no spread grid, so the editable "
-            "default above is used for them."
+            "default above is used for them.\n"
+            "- **Accrued dividend:** assumes the announced dividend approximates "
+            "earnings. Annualized latest payout × days since last ex-date ÷ 365 "
+            "is added to estimated BV (frequencies and ex-dates from Yahoo "
+            "Finance dividends; latest payout annualized so cuts/hikes register "
+            "immediately)."
         )
         for t in TICKER_ORDER:
             info = REITS[t]
@@ -339,3 +413,12 @@ def render(today_row):
                 )
             else:
                 st.markdown("- Spreads: not disclosed — default sensitivity used.")
+            div = dividends.get(t)
+            if div:
+                st.markdown(
+                    f"- Dividend: {div['freq']}, annualized ${div['annual']:.2f} "
+                    f"({div['mult']}×${div['last_amt']:.2f}), last ex-date "
+                    f"{div['last_ex']}, {div['days']}d accrued → +${div['accrued']:.2f}/share."
+                )
+            else:
+                st.markdown("- Dividend: no data — no accrual added.")
