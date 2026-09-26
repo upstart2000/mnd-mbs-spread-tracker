@@ -236,7 +236,7 @@ def render(today_row):
         "<style>div[data-testid='stNumberInput']{max-width:210px}</style>",
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, _spacer = st.columns([1, 1, 1, 2])
     with c1:
         rate_chg = st.number_input(
             "Rate change since 6/30 (bps)", value=default_rate, step=5,
@@ -285,7 +285,9 @@ def render(today_row):
         width="content",
         hide_index=True,
         column_config={
-            c: st.column_config.TextColumn(width="small") for c in df.columns
+            c: st.column_config.TextColumn(
+                width="small" if c == "REIT" else "medium")
+            for c in df.columns
         },
     )
 
