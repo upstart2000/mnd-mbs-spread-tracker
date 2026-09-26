@@ -239,11 +239,27 @@ fig.update_layout(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     margin=dict(t=60, b=40),
+    dragmode="zoom",  # drag a box on the chart to zoom; double-click to reset
 )
-fig.update_xaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=False)
+fig.update_xaxes(
+    showgrid=True,
+    gridcolor=GRIDLINE,
+    zeroline=False,
+    rangeslider=dict(visible=True),  # drag handles to zoom any time window
+    rangeselector=dict(
+        buttons=[
+            dict(count=1, label="1M", step="month", stepmode="backward"),
+            dict(count=3, label="3M", step="month", stepmode="backward"),
+            dict(count=6, label="6M", step="month", stepmode="backward"),
+            dict(count=1, label="YTD", step="year", stepmode="todate"),
+            dict(count=1, label="1Y", step="year", stepmode="backward"),
+            dict(step="all", label="All"),
+        ]
+    ),
+)
 fig.update_yaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE)
 
-st.plotly_chart(fig, width="stretch")
+st.plotly_chart(fig, width="stretch", config={"displayModeBar": True})
 
 with st.expander("Show underlying data"):
     st.dataframe(df.drop(columns=["coupon_curve"]), width="stretch")
