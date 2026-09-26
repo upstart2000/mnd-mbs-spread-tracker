@@ -167,8 +167,8 @@ def estimate(rate_chg_bps, spread_chg_bps, default_spread_sens=10.0):
         rows.append({
             "REIT": t,
             "Q2'26 BV ($)": bv_q2,
-            "ΔBV rates (%)": d_rate,
-            "ΔBV spreads (%)": d_spread,
+            "ΔBV from rates (%)": d_rate,
+            "ΔBV from spreads (%)": d_spread,
             "Total ΔBV (%)": total,
             "Est. BV today ($)": est_bv,
         })
@@ -315,7 +315,7 @@ def render(today_row):
         info = dividends.get(r["REIT"]) or {}
         r["Accrued div. ($)"] = info.get("accrued")
         mech = r["Est. BV today ($)"]
-        r["Est. BV + accr. div. ($)"] = (
+        r["Est. BV with accr. div. ($)"] = (
             mech + info["accrued"]
             if mech is not None and info.get("accrued") else None
         )
@@ -323,13 +323,13 @@ def render(today_row):
     prices = fetch_prices(TICKER_ORDER)
     for r in rows:
         p = prices.get(r["REIT"])
-        bv = r["Est. BV + accr. div. ($)"]
+        bv = r["Est. BV with accr. div. ($)"]
         r["Price ($)"] = p
-        r["P / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
+        r["Price / Est. BV (%)"] = (100.0 * p / bv) if p and bv else None
     df = pd.DataFrame(rows)[[
-        "REIT", "Q2'26 BV ($)", "ΔBV rates (%)", "ΔBV spreads (%)",
+        "REIT", "Q2'26 BV ($)", "ΔBV from rates (%)", "ΔBV from spreads (%)",
         "Total ΔBV (%)", "Est. BV today ($)", "Accrued div. ($)",
-        "Est. BV + accr. div. ($)", "Price ($)", "P / Est. BV (%)",
+        "Est. BV with accr. div. ($)", "Price ($)", "Price / Est. BV (%)",
     ]]
 
     def _pct(v):
@@ -339,18 +339,18 @@ def render(today_row):
         df.style
         .format({
             "Q2'26 BV ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
-            "ΔBV rates (%)": _pct,
-            "ΔBV spreads (%)": _pct,
+            "ΔBV from rates (%)": _pct,
+            "ΔBV from spreads (%)": _pct,
             "Total ΔBV (%)": _pct,
             "Est. BV today ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Accrued div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
-            "Est. BV + accr. div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
+            "Est. BV with accr. div. ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
             "Price ($)": lambda v: f"${v:.2f}" if pd.notna(v) else "—",
-            "P / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
+            "Price / Est. BV (%)": lambda v: f"{v:.1f}%" if pd.notna(v) else "—",
         })
         .map(lambda v: "color: #e34948" if pd.notna(v) and v < 0 else
              ("color: #006300" if pd.notna(v) and v > 0 else ""),
-             subset=["ΔBV rates (%)", "ΔBV spreads (%)",
+             subset=["ΔBV from rates (%)", "ΔBV from spreads (%)",
                      "Total ΔBV (%)", "Accrued div. ($)"])
         .set_properties(**{"text-align": "center"})
     )
@@ -360,7 +360,7 @@ def render(today_row):
         hide_index=True,
         column_config={
             c: st.column_config.TextColumn(
-                width="medium" if c == "Est. BV + accr. div. ($)" else "small")
+                width="medium" if c == "Est. BV with accr. div. ($)" else "small")
             for c in df.columns
         },
     )
