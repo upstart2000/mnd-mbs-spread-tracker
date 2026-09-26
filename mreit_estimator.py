@@ -359,9 +359,7 @@ def render(today_row):
         width="stretch",
         hide_index=True,
         column_config={
-            c: st.column_config.TextColumn(
-                width="medium" if c == "Est. BV with accr. div. ($)" else "small")
-            for c in df.columns
+            c: st.column_config.TextColumn(width="small") for c in df.columns
         },
     )
 
