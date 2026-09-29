@@ -1,21 +1,19 @@
-name: Daily MND/Treasury ingestion (8 AM ET)
+name: Daily MND/Treasury ingestion (5 AM ET)
 
-# Target: first attempt at 8:00 AM ET, retry at 8:45 AM ET. Running in the
-# morning because MND's closes are finalized/displayed the next day.
+# Target: first attempt at 5:00 AM ET, retries at 6:00 and 7:00 AM ET. Running
+# in the early morning because MND's closes are finalized/displayed overnight.
 # GitHub Actions cron is UTC-only and doesn't shift for daylight saving, so
-# each attempt gets two cron lines - one for EDT (UTC-4) and one for EST
-# (UTC-5). That means this fires 4x on any given weekday, but only 2 of
-# those 4 are ever "real" for the current season; the other 2 land an hour
-# off and are harmless no-ops once the day's row already exists
-# (nightly_job.py's skip-if-complete check makes an off-season or retry
-# firing a fast exit rather than a wasted re-fetch). Day-of-week is 1-5
-# (Mon-Fri UTC) because 8 AM ET is the same UTC calendar day.
+# the three ET times need four UTC lines to cover both EDT (UTC-4) and EST
+# (UTC-5). Off-season firings are harmless no-ops once the day's row exists
+# (nightly_job.py's skip-if-complete check makes them fast exits rather than
+# wasted re-fetches). Day-of-week is 1-5 (Mon-Fri UTC) because 5-7 AM ET is
+# the same UTC calendar day.
 on:
   schedule:
-    - cron: '0 12 * * 1-5'   # 8:00 AM EDT
-    - cron: '0 13 * * 1-5'   # 8:00 AM EST
-    - cron: '45 12 * * 1-5'  # 8:45 AM EDT retry
-    - cron: '45 13 * * 1-5'  # 8:45 AM EST retry
+    - cron: '0 9 * * 1-5'    # 5:00 AM EDT (off-season: 4:00 AM EST no-op)
+    - cron: '0 10 * * 1-5'   # 6:00 AM EDT / 5:00 AM EST
+    - cron: '0 11 * * 1-5'   # 7:00 AM EDT / 6:00 AM EST
+    - cron: '0 12 * * 1-5'   # 7:00 AM EST (off-season: 8:00 AM EDT no-op)
   workflow_dispatch: {}     # manual trigger for testing / catch-up runs
 
 permissions:
