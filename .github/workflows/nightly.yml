@@ -8,14 +8,18 @@ name: Daily MND/Treasury ingestion (3:30 AM ET)
 # daylight saving, so the three ET times need four UTC lines to cover both
 # EDT (UTC-4) and EST (UTC-5). Off-season firings are harmless no-ops once the
 # day's row exists (nightly_job.py's skip-if-complete check makes them fast
-# exits rather than wasted re-fetches). Day-of-week is 1-5 (Mon-Fri UTC)
-# because 3:30-5:30 AM ET is the same UTC calendar day.
+# exits rather than wasted re-fetches). Day-of-week is 1-6 (Mon-Sat UTC;
+# 3:30-5:30 AM ET is the same UTC calendar day): each morning picks up the
+# prior trading day's close, so Saturday morning is what lands Friday's close
+# (and completes the daily table's Weekly Change row). Monday morning is kept
+# as a safety net - normally a no-op, but it catches Friday's close if every
+# Saturday run failed, since the job only ever writes the latest MND date.
 on:
   schedule:
-    - cron: '30 7 * * 1-5'   # 3:30 AM EDT (off-season: 2:30 AM EST)
-    - cron: '30 8 * * 1-5'   # 4:30 AM EDT / 3:30 AM EST
-    - cron: '30 9 * * 1-5'   # 5:30 AM EDT / 4:30 AM EST
-    - cron: '30 10 * * 1-5'  # 5:30 AM EST (off-season: 6:30 AM EDT)
+    - cron: '30 7 * * 1-6'   # 3:30 AM EDT (off-season: 2:30 AM EST)
+    - cron: '30 8 * * 1-6'   # 4:30 AM EDT / 3:30 AM EST
+    - cron: '30 9 * * 1-6'   # 5:30 AM EDT / 4:30 AM EST
+    - cron: '30 10 * * 1-6'  # 5:30 AM EST (off-season: 6:30 AM EDT)
   workflow_dispatch: {}     # manual trigger for testing / catch-up runs
 
 permissions:

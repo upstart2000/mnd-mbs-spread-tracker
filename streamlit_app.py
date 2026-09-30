@@ -11,7 +11,7 @@ News Daily, the interpolated par coupon, 5yr/10yr UST par yields, and the
 par-coupon spreads vs Treasuries (bps).
 """
 import os
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -47,7 +47,7 @@ def load_dataframe(db_path=db.DEFAULT_DB_PATH):
 
 
 SPREAD_COLUMNS = ["Spread vs 5yr (bps)", "Spread vs 10yr (bps)", "Spread vs 5/10yr (bps)"]
-COMPUTED_ROW_LABELS = {"Daily Change", "Prior Quarter Change", "QTD Change"}
+COMPUTED_ROW_LABELS = {"Daily Change", "Weekly Change", "Prior Quarter Change", "QTD Change"}
 TABLE_COLUMNS = (
     ["UST 5yr", "UST 10yr", "UMBS 5.5", "UMBS 6.0", "UMBS 6.5", "Par Coupon"]
     + SPREAD_COLUMNS
@@ -92,12 +92,25 @@ def diff_row(values_a, values_b, columns, scope_columns=None):
     return result
 
 
-def build_daily_table(today_row, prior_row, current_qe, prior_qe):
+def get_prior_week_close_row(df, latest_date):
+    """
+    The last stored row before latest_date's week (Mon-Sun) started - i.e.
+    the prior week's close, normally its Friday. Returns None if the dataset
+    doesn't go back that far.
+    """
+    week_start = latest_date - timedelta(days=latest_date.weekday())
+    earlier = df[df["mbs_date"] < pd.Timestamp(week_start)]
+    return earlier.iloc[-1].to_dict() if not earlier.empty else None
+
+
+def build_daily_table(today_row, prior_row, current_qe, prior_qe, prior_week_close=None):
     """
     Rows, in order: prior quarter-end, current quarter-end, Prior Quarter
     Change (current QE - prior QE), the two most recent stored trading days
-    (labeled with their actual dates), Daily Change (latest - prior), QTD
-    Change (latest - current QE). Any row whose source data isn't available
+    (labeled with their actual dates), Daily Change (latest - prior), Weekly
+    Change (latest - prior week's close; once Friday's close lands on Saturday
+    morning this is the full Friday-to-Friday move), QTD Change (latest -
+    current QE). Any row whose source data isn't available
     yet (e.g. no quarter-end baseline this early in the dataset) is omitted
     rather than shown empty.
     """
@@ -107,6 +120,7 @@ def build_daily_table(today_row, prior_row, current_qe, prior_qe):
     prior_vals = snapshot_row_values(prior_row)
     current_qe_vals = snapshot_row_values(current_qe)
     prior_qe_vals = snapshot_row_values(prior_qe)
+    prior_week_vals = snapshot_row_values(prior_week_close)
 
     rows = {}
     if prior_qe_vals is not None:
@@ -120,6 +134,8 @@ def build_daily_table(today_row, prior_row, current_qe, prior_qe):
     rows[_row_date(today_row).isoformat()] = today_vals
     if prior_vals is not None:
         rows["Daily Change"] = diff_row(today_vals, prior_vals, columns)
+    if prior_week_vals is not None:
+        rows["Weekly Change"] = diff_row(today_vals, prior_week_vals, columns)
     if current_qe_vals is not None:
         rows["QTD Change"] = diff_row(today_vals, current_qe_vals, columns)
 
@@ -210,8 +226,11 @@ with tab_spread:
 
     # --- Daily table ---
     current_qe, prior_qe = db.get_quarter_end_rows(today_row["mbs_date"].date())
-    daily_table = build_daily_table(today_row, prior_row, current_qe, prior_qe)
+    prior_week_close = get_prior_week_close_row(df, today_row["mbs_date"].date())
+    daily_table = build_daily_table(today_row, prior_row, current_qe, prior_qe, prior_week_close)
     st.dataframe(style_daily_table(daily_table), width="stretch")
+    if prior_week_close is not None:
+        st.caption(f"Weekly Change is measured against the prior week's close ({_row_date(prior_week_close)}).")
 
     st.divider()
 
