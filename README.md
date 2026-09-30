@@ -39,7 +39,7 @@ the 5yr/10yr Treasury par yields.
 - **`pipeline.py`** - shared glue tying the above into one daily record.
 - **`nightly_job.py`** - pulls the latest MND closes, fetches rates,
   computes spreads/QTD, upserts into SQLite. Runs on a schedule via
-  `.github/workflows/nightly.yml` (GitHub Actions, 8:00 AM ET + 8:45 AM ET retry),
+  `.github/workflows/nightly.yml` (GitHub Actions, 3:30 AM ET + 4:30/5:30 AM ET retries),
   which commits the updated `mnd_spreads.db` back to this repo.
 - **`backfill.py`** - one-time historical backfill straight from MND's chart
   history (no monthly archives needed - each coupon's full history comes back
