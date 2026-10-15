@@ -274,15 +274,19 @@ with tab_spread:
             )
         )
 
-    # Y-axis always starts at zero - a negative MBS/Treasury spread isn't a real
-    # reading (the few negatives are interpolation artifacts) - and its top
-    # autoscales to the visible window so each range fills the chart.
-    y_top = max(
-        chart_df["spread_5yr"].max(),
-        chart_df["spread_10yr"].max(),
-        chart_df["spread_avg"].max(),
-    )
-    y_top = float(y_top) if pd.notna(y_top) and y_top > 0 else 100.0
+    # Y-axis fits the visible window's own min/max (plus a little padding) so
+    # short ranges aren't squashed flat - same idea as ParMBSSpredTracker's
+    # chart. The bottom is still floored at zero: a negative MBS/Treasury
+    # spread isn't a real reading (the few negatives are interpolation
+    # artifacts), so they shouldn't stretch the axis below it.
+    spread_cols = ["spread_5yr", "spread_10yr", "spread_avg"]
+    y_lo = chart_df[spread_cols].min().min()
+    y_hi = chart_df[spread_cols].max().max()
+    if pd.notna(y_lo) and pd.notna(y_hi):
+        y_pad = max((y_hi - y_lo) * 0.08, 2.0)
+        y_range = [max(0.0, float(y_lo) - y_pad), float(y_hi) + y_pad]
+    else:
+        y_range = None
     fig.update_layout(
         xaxis_title="Date",
         yaxis_title="Spread (bps)",
@@ -296,7 +300,7 @@ with tab_spread:
     fig.update_xaxes(showgrid=True, gridcolor=GRIDLINE, zeroline=False)
     fig.update_yaxes(
         showgrid=True, gridcolor=GRIDLINE, zeroline=True, zerolinecolor=GRIDLINE,
-        range=[0, y_top * 1.05],
+        range=y_range,
     )
 
     st.plotly_chart(fig, width="stretch", config={"displayModeBar": True})
