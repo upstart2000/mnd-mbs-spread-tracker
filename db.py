@@ -180,9 +180,12 @@ def null_par(mbs_date, db_path=DEFAULT_DB_PATH):
     Null out a day's par coupon, bracket, and every par-derived field (spreads
     and spread QTD changes), keeping the coupon prices and treasury data.
     Used for spike/bad-mark days: a gap on the chart instead of a false spike.
+    Days in MANUAL_OVERRIDES are never nulled (their par is externally sourced).
     """
     if isinstance(mbs_date, date):
         mbs_date = mbs_date.isoformat()
+    if mbs_date in MANUAL_OVERRIDES:
+        return
     with _connect(db_path) as conn:
         conn.execute(
             """UPDATE daily_spreads
@@ -194,6 +197,80 @@ def null_par(mbs_date, db_path=DEFAULT_DB_PATH):
                WHERE mbs_date=?""",
             (mbs_date,),
         )
+
+
+# Quarter-end rows whose UST yields and par coupon are replaced with the
+# figures AGNC reported, so QTD changes are measured from the same baseline
+# AGNC uses. Our own sources differ on these days: Treasury.gov yields are a
+# ~3:30 PM ET snapshot and MND closes are interpolated to a straight price
+# par coupon, while AGNC uses end-of-day marks and a model-based "current
+# coupon" yield. par_coupon is AGNC's "30 Yr Agency CC". The UMBS 5.5/6.0/6.5
+# closes on these rows stay MND's.
+MANUAL_OVERRIDES = {
+    "2026-06-30": {"ust_5yr": 4.23, "ust_10yr": 4.47, "par_coupon": 5.41},
+    "2026-09-30": {"ust_5yr": 5.09, "ust_10yr": 5.29, "par_coupon": 6.44},
+}
+MANUAL_OVERRIDE_SOURCE = "AGNC Q3 2026 earnings presentation"
+
+
+def apply_manual_override(record):
+    """
+    If record's mbs_date is in MANUAL_OVERRIDES, replaces its UST yields and
+    par coupon with the override values, recomputes its spreads, and sets
+    ust_source to MANUAL_OVERRIDE_SOURCE (in place). Returns True if applied.
+    """
+    mbs_date = record["mbs_date"]
+    key = mbs_date.isoformat() if isinstance(mbs_date, date) else mbs_date
+    override = MANUAL_OVERRIDES.get(key)
+    if override is None:
+        return False
+    record["ust_5yr"] = override["ust_5yr"]
+    record["ust_10yr"] = override["ust_10yr"]
+    record["ust_source"] = MANUAL_OVERRIDE_SOURCE
+    record["ust_stale"] = False
+    record["par_coupon"] = override["par_coupon"]
+    record["spread_5yr"], record["spread_10yr"], record["spread_avg"] = compute_spreads(
+        override["par_coupon"], override["ust_5yr"], override["ust_10yr"]
+    )
+    return True
+
+
+def apply_manual_overrides_to_db(db_path=DEFAULT_DB_PATH):
+    """
+    Applies MANUAL_OVERRIDES to rows already stored, then recomputes QTD for
+    every row from the earliest override date onward (their reference rows
+    may have changed). Returns (rows_overridden, qtd_rows_recomputed).
+    """
+    overridden = 0
+    for key in sorted(MANUAL_OVERRIDES):
+        row = get_day(key, db_path=db_path)
+        if row is None:
+            continue
+        apply_manual_override(row)
+        upsert_day(row, db_path=db_path)
+        overridden += 1
+    if not MANUAL_OVERRIDES:
+        return overridden, 0
+    return overridden, recompute_qtd(min(MANUAL_OVERRIDES), db_path=db_path)
+
+
+def recompute_qtd(start_date, db_path=DEFAULT_DB_PATH):
+    """Recomputes the qtd_* columns for every row on/after start_date. Returns the row count."""
+    if isinstance(start_date, date):
+        start_date = start_date.isoformat()
+    with _connect(db_path) as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM daily_spreads WHERE mbs_date >= ? ORDER BY mbs_date ASC", (start_date,)
+        )]
+    for row in rows:
+        fields = compute_qtd_fields(row, db_path=db_path)
+        set_clause = ", ".join(f"{k}=:{k}" for k in fields)
+        with _connect(db_path) as conn:
+            conn.execute(
+                f"UPDATE daily_spreads SET {set_clause} WHERE mbs_date=:mbs_date",
+                {**fields, "mbs_date": row["mbs_date"]},
+            )
+    return len(rows)
 
 
 def get_quarter_start(d):

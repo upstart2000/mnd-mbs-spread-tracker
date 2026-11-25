@@ -86,6 +86,7 @@ def main():
 
         s5, s10, savg = compute_spreads(record["par_coupon"], record["ust_5yr"], record["ust_10yr"])
         record.update(spread_5yr=s5, spread_10yr=s10, spread_avg=savg)
+        db.apply_manual_override(record)  # keep externally pinned quarter-end values
         # QTD recomputed in pass 3; write without it for now
         upsert_day(record, db_path=db_path)
         repaired += 1

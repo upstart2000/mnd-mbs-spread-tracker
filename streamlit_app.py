@@ -10,6 +10,7 @@ Each row holds one trading day's UMBS 5.5 / 6.0 / 6.5 closes from Mortgage
 News Daily, the interpolated par coupon, 5yr/10yr UST par yields, and the
 par-coupon spreads vs Treasuries (bps).
 """
+import importlib
 import os
 from datetime import date, timedelta
 
@@ -19,6 +20,11 @@ import streamlit as st
 
 import db
 import mreit_estimator
+
+# Streamlit re-runs this script when it changes but keeps already-imported
+# helper modules cached, so a deploy that adds something to db.py would hit
+# the stale copy (AttributeError) until a manual reboot. Reload it each run.
+db = importlib.reload(db)
 
 # Fixed categorical order (validated for CVD separation - see dataviz skill palette).
 COLOR_SPREAD_5YR = "#2a78d6"   # blue
@@ -231,6 +237,20 @@ with tab_spread:
     st.dataframe(style_daily_table(daily_table), width="stretch")
     if prior_week_close is not None:
         st.caption(f"Weekly Change is measured against the prior week's close ({_row_date(prior_week_close)}).")
+
+    # Footnote for quarter-end baselines pinned to AGNC's reported figures (db.MANUAL_OVERRIDES).
+    overridden_dates = sorted(
+        _row_date(r) for r in (prior_qe, current_qe)
+        if r is not None and _row_date(r).isoformat() in db.MANUAL_OVERRIDES
+    )
+    if overridden_dates:
+        st.caption(
+            "Note: " + " and ".join(f"{d:%b %d, %Y}" for d in overridden_dates)
+            + " - 5yr/10yr UST and par coupon set to the figures in the "
+            + db.MANUAL_OVERRIDE_SOURCE
+            + " (its \"30 Yr Agency CC\"), not our MND/Treasury.gov data. Spreads and QTD changes "
+            "measured from these dates use those values; the UMBS closes shown are still MND's."
+        )
 
     st.divider()
 

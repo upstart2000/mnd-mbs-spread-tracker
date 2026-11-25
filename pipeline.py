@@ -18,7 +18,7 @@ import json
 
 from par_coupon import compute_par_coupon
 from treasury_rates import get_treasury_rates
-from db import compute_spreads
+from db import apply_manual_override, compute_spreads
 
 
 def _serialize_curve(curve):
@@ -79,5 +79,9 @@ def build_daily_record(prices_by_coupon, mbs_date, allow_yahoo_fallback=True):
     record["spread_5yr"] = spread_5yr
     record["spread_10yr"] = spread_10yr
     record["spread_avg"] = spread_avg
+
+    # Quarter-end days pinned to externally reported values (see db.MANUAL_OVERRIDES),
+    # so a re-run of those dates keeps the override.
+    apply_manual_override(record)
 
     return record
